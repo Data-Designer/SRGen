@@ -1,0 +1,26 @@
+{
+  "model_path": "/path/to/your/model",
+  "device": "cuda:0",
+  "torch_dtype": "bfloat16",
+  "attn_implementation": "flash_attention_2",
+  
+  "times": 1,
+  "lr": 0.1,
+  "entropy_weight": 0.1,
+  
+  "use_entropy_control": false,
+  "entropy_threshold": 3.0,
+  "max_retries": 5,
+  "log_entropy_control": false,
+  
+  "adaptive_entropy": false,
+  "adaptive_entropy_N": 20,
+  "adaptive_entropy_K": 2.0,
+  "minimal_std": 0.5,
+  "minimal_threshold": 1.8,
+  
+  "system_prompt": "You are a helpful AI assistant. Please think step by step and provide your final answer in the specified format.",
+  
+  "default_max_tokens": 4096,
+  "default_temperature": 0.9
+}
