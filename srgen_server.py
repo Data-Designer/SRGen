@@ -470,20 +470,21 @@ async def create_chat_completion(request: ChatCompletionRequest):
     prompt_tokens = inputs['input_ids'].shape[1]
     
     # Prepare generation parameters
+    # Determine temperature to use
+    temperature = request.temperature if request.temperature is not None else SERVER_CONFIG["default_temperature"]
+    os.environ["temperature"] = str(temperature)
+    
     generation_params = {
         "max_new_tokens": request.max_tokens or SERVER_CONFIG["default_max_tokens"],
-        "do_sample": True if request.temperature and request.temperature > 0 else False,
+        "do_sample": True if temperature > 0 else False,
     }
     
-    if request.temperature is not None:
-        generation_params["temperature"] = request.temperature
-        os.environ["temperature"] = str(request.temperature)
-    else:
-        generation_params["temperature"] = SERVER_CONFIG["default_temperature"]
-        os.environ["temperature"] = str(SERVER_CONFIG["default_temperature"])
-    
-    if request.top_p is not None:
-        generation_params["top_p"] = request.top_p
+    # Only add sampling parameters when do_sample=True
+    if generation_params["do_sample"]:
+        generation_params["temperature"] = temperature
+        os.environ["temperature"] = "1.0"
+        if request.top_p is not None:
+            generation_params["top_p"] = request.top_p
     
     if request.stop is not None:
         if isinstance(request.stop, str):
