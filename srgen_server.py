@@ -482,9 +482,10 @@ async def create_chat_completion(request: ChatCompletionRequest):
     # Only add sampling parameters when do_sample=True
     if generation_params["do_sample"]:
         generation_params["temperature"] = temperature
-        os.environ["temperature"] = "1.0"
         if request.top_p is not None:
             generation_params["top_p"] = request.top_p
+    else:
+        os.environ["temperature"] = "1.0"
     
     if request.stop is not None:
         if isinstance(request.stop, str):
