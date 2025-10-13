@@ -10,6 +10,7 @@ import json
 import uuid
 import time
 import argparse
+import logging
 from typing import Optional, List, Dict, Any, Union, Literal
 from datetime import datetime
 from contextlib import asynccontextmanager
@@ -43,7 +44,7 @@ SERVER_CONFIG = {
     "use_entropy_control": False,
     "entropy_threshold": 3.0,
     "max_retries": 5,
-    "log_entropy_control": False,
+    "log_entropy_control": True,
     
     # Adaptive entropy parameters
     "adaptive_entropy": False,
@@ -53,12 +54,59 @@ SERVER_CONFIG = {
     "minimal_threshold": 1.8,
     
     # System prompt
-    "system_prompt": "You are a helpful AI assistant. Please think step by step and provide your final answer in the specified format.",
+    "system_prompt": "You are a helpful AI assistant. ",
     
     # Generation defaults
     "default_max_tokens": 4096,
     "default_temperature": 0.9,
+    
+    # Logging configuration
+    "log_file": "srgen_server.log",
+    "log_level": "INFO",
 }
+
+
+# ============================================================================
+# Logging Configuration
+# ============================================================================
+
+def setup_logging():
+    """Setup logging configuration"""
+    log_file = SERVER_CONFIG.get("log_file", "srgen_server.log")
+    log_level = SERVER_CONFIG.get("log_level", "INFO")
+    
+    # Create logger
+    logger = logging.getLogger("srgen_server")
+    logger.setLevel(getattr(logging, log_level))
+    
+    # Prevent duplicate handlers
+    if logger.handlers:
+        logger.handlers.clear()
+    
+    # File handler with JSON-like formatting
+    file_handler = logging.FileHandler(log_file, encoding='utf-8')
+    file_handler.setLevel(getattr(logging, log_level))
+    
+    # Console handler
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    
+    # Format
+    formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    file_handler.setFormatter(formatter)
+    console_handler.setFormatter(formatter)
+    
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
+    
+    return logger
+
+
+# Initialize logger
+logger = setup_logging()
 
 
 # ============================================================================
@@ -151,6 +199,8 @@ async def lifespan(app: FastAPI):
     
     load_model_from_config()
     
+    logger.info(f"TNOT Model Server started successfully. Model: {model_state.model_name}, Log file: {SERVER_CONFIG.get('log_file')}")
+    
     print("=" * 80)
     print("Server is ready to accept requests")
     print("=" * 80)
@@ -159,6 +209,7 @@ async def lifespan(app: FastAPI):
     
     # Shutdown
     print("Shutting down server...")
+    logger.info("TNOT Model Server shutting down")
     cleanup_model()
 
 
@@ -264,25 +315,10 @@ def cleanup_model():
 def build_prompt_from_messages(messages: List[Message]) -> str:
     """Build prompt from OpenAI message format"""
     # Extract system prompt and user message
-    system_prompt = SERVER_CONFIG["system_prompt"]
-    user_content = ""
-    
-    for msg in messages:
-        if msg.role == "system":
-            system_prompt = msg.content
-        elif msg.role == "user":
-            user_content = msg.content
-        elif msg.role == "assistant":
-            # For multi-turn conversations, we could handle this
-            # For now, just concatenate
-            user_content += f"\nAssistant: {msg.content}\n"
     
     # Build chat template
     prompt_text = model_state.tokenizer.apply_chat_template(
-        [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_content}
-        ],
+        messages,
         tokenize=False,
         add_generation_prompt=True
     )
@@ -457,6 +493,12 @@ async def create_chat_completion(request: ChatCompletionRequest):
     if request.n != 1:
         raise HTTPException(status_code=400, detail="Only n=1 is supported")
     
+    # Extract user question for logging
+    user_question = ""
+    for msg in request.messages:
+        if msg.role == "user":
+            user_question = msg.content
+    
     # Build prompt from messages
     prompt_text = build_prompt_from_messages(request.messages)
     
@@ -472,7 +514,8 @@ async def create_chat_completion(request: ChatCompletionRequest):
     # Prepare generation parameters
     # Determine temperature to use
     temperature = request.temperature if request.temperature is not None else SERVER_CONFIG["default_temperature"]
-    os.environ["temperature"] = str(temperature)
+
+    # os.environ["temperature"] = str(temperature)
     
     generation_params = {
         "max_new_tokens": request.max_tokens or SERVER_CONFIG["default_max_tokens"],
@@ -486,6 +529,7 @@ async def create_chat_completion(request: ChatCompletionRequest):
             generation_params["top_p"] = request.top_p
     else:
         os.environ["temperature"] = "1.0"
+    os.environ["temperature"] = "1.0"
     
     if request.stop is not None:
         if isinstance(request.stop, str):
@@ -523,6 +567,19 @@ async def create_chat_completion(request: ChatCompletionRequest):
                 media_type="text/event-stream"
             )
         
+        # Log the interaction
+        log_entry = {
+            "timestamp": datetime.now().isoformat(),
+            "question": user_question,
+            "model_response": completion,
+            "retry_count": retry_count,
+            "use_entropy_control": use_entropy_control,
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": prompt_tokens + completion_tokens
+        }
+        logger.info(f"Chat completion: {json.dumps(log_entry, ensure_ascii=False)}")
+        
         # Non-streaming response
         response = ChatCompletionResponse(
             id=f"chatcmpl-{uuid.uuid4().hex[:8]}",
@@ -545,6 +602,13 @@ async def create_chat_completion(request: ChatCompletionRequest):
         return response
         
     except Exception as e:
+        error_log = {
+            "timestamp": datetime.now().isoformat(),
+            "question": user_question,
+            "error": str(e),
+            "error_type": type(e).__name__
+        }
+        logger.error(f"Generation error: {json.dumps(error_log, ensure_ascii=False)}")
         print(f"Generation error: {str(e)}")
         import traceback
         traceback.print_exc()
@@ -616,7 +680,7 @@ async def health_check():
 @app.post("/v1/config/update")
 async def update_config(config: Dict[str, Any]):
     """Update server configuration (non-OpenAI, custom endpoint)"""
-    global SERVER_CONFIG
+    global SERVER_CONFIG, logger
     
     for key, value in config.items():
         if key in SERVER_CONFIG:
@@ -625,6 +689,11 @@ async def update_config(config: Dict[str, Any]):
     
     # Re-setup environment with new config
     setup_environment()
+    
+    # Re-setup logging if log config changed
+    if "log_file" in config or "log_level" in config:
+        logger = setup_logging()
+        logger.info(f"Logging configuration updated: log_file={SERVER_CONFIG.get('log_file')}, log_level={SERVER_CONFIG.get('log_level')}")
     
     return {"message": "Configuration updated", "config": SERVER_CONFIG}
 
