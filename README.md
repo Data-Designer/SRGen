@@ -15,6 +15,8 @@
 
 ---
 
+![](method.png)
+
 ## 📖 Introduction
 
 **SRGen** (Self-Reflective Generation at Test Time) is a novel test-time framework that enables large language models to **reflect before generating** at uncertain points during token generation. Unlike traditional post-hoc refinement methods that are reactive and computationally expensive, SRGen proactively prevents errors by:
