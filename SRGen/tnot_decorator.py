@@ -204,7 +204,7 @@ def apply_tnot_logic(model, hidden_states, input_ids, masked_token_ids, prompt_o
         with torch.enable_grad():
             
             if model.delta is not None:
-                delta_high = nn.Parameter(0.0 * torch.randn([1, 1, hidden_states.shape[-1]]).to(hidden_states))
+                delta_high = nn.Parameter(0.0 * torch.randn([1, 1, hidden_states.shape[-1]]).to(hidden_states)) # 还真是随机初始化的代码。能不能在这里直接区分掉context
                 # Optimize delta_high with joint loss (CE + entropy)
                 optimizer_high = torch.optim.AdamW([delta_high], lr=lr, weight_decay=1e-8, eps=1e-5)
                 for _ in range(times):
@@ -225,9 +225,9 @@ def apply_tnot_logic(model, hidden_states, input_ids, masked_token_ids, prompt_o
                         for token_id in masked_token_ids:
                             masked_labels[masked_labels == token_id] = -100
                     
-                    ce_loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), masked_labels.view(-1))
+                    ce_loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), masked_labels.view(-1)) # 自回归损失
                     
-                    # Add entropy loss for the last position
+                    # Add entropy loss for the last position, 多样性损失
                     last_logits = logits[:, -1, :]  # Shape: [batch_size, vocab_size]
                     temperature = float(os.environ.get("temperature", "1.0"))
                     last_probs = F.softmax(last_logits / temperature, dim=-1)
@@ -255,7 +255,7 @@ def apply_tnot_logic(model, hidden_states, input_ids, masked_token_ids, prompt_o
                 hidden_states = hidden_states + delta_high
 
                 if response_entropy_file := os.environ.get("response_entropy_file_after", ""):
-                    _record_high_entropy_token(model, model.lm_head(hidden_states), logits_to_keep, response_entropy_file)
+                    _record_high_entropy_token(model, model.lm_head(hidden_states), logits_to_keep, response_entropy_file) # 记录high entropy出现的次数
             
             # Optimize delta_normal with only cross-entropy loss
             else:
@@ -343,7 +343,7 @@ def apply_entropy_control(model, logits, past_key_values, input_ids, logits_to_k
             current_len = len(model.entropy_history) + 1
 
             # Only calculate dynamic entropy threshold if we have enough history
-            if current_len > adaptive_entropy_N:
+            if current_len > adaptive_entropy_N: # 旨在某个长度之后进行生成，why，这个有点tricky？看起来像是为了保持前缀差不多而做的。因为他需要那个windows
                 window = torch.tensor(model.entropy_history[-adaptive_entropy_N:], device=entropy.device)
 
                 
@@ -723,7 +723,7 @@ def _enhanced_forward_for_instance(
         forward_kwargs['cache_position'] = cache_position
     
     # Call the underlying model's forward method (self.model for CausalLM models)
-    outputs = model.model(**forward_kwargs)
+    outputs = model.model(**forward_kwargs) # 这里使用模型的forward即可获得
     
     # Extract hidden states - consistent with original implementation
     hidden_states = outputs[0]
@@ -733,7 +733,7 @@ def _enhanced_forward_for_instance(
     stage = "prompt" if prompt_only else "generation"
     
     # Apply TNOT logic 
-    hidden_states = apply_tnot_logic(model, hidden_states, input_ids, masked_token_ids, prompt_only)
+    hidden_states = apply_tnot_logic(model, hidden_states, input_ids, masked_token_ids, prompt_only) # 新的hidden参数
     
     # Handle entropy analysis and recording
     handle_entropy_analysis(model, original_hidden_states, hidden_states, input_ids, logits_to_keep)
