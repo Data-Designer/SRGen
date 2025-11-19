@@ -239,13 +239,13 @@ class BaseEvaluator:
         
         for i, qa in enumerate(eval_QAs):
             self.model.reset_entropy_detection()
-            self.model.reset_model_parameters()
+            self.model.reset_model_parameters() # 每次都重置模型参数为原来的。
                 
             if (i + 1) % 10 == 0:
                 print(f"Evaluated {i+1}/{total} samples")
                 
             prompt = qa['Q']
-            prompt_text = self.build_prompt_text(prompt)
+            prompt_text = self.build_prompt_text(prompt) # 添加Instruction, 如果想在query自身上做怎么做呢？
             
             inputs = self.tokenizer(prompt_text, return_tensors="pt", add_special_tokens=False).to(self.model.device)
             
