@@ -156,7 +156,7 @@ class BaseEvaluator:
         os.environ["log_entropy_control"] = "True"
         
         full_completion = ""
-        current_inputs = inputs.copy()
+        current_inputs = inputs.copy() # origin query
         retry_count = 0
         
         while retry_count < max_retries:
@@ -168,8 +168,8 @@ class BaseEvaluator:
                 **generation_params,
             )
             
-            new_tokens = outputs[0][current_inputs['input_ids'].shape[1]:]
-            completion_part = self.tokenizer.decode(new_tokens, skip_special_tokens=True)
+            new_tokens = outputs[0][current_inputs['input_ids'].shape[1]:] 
+            completion_part = self.tokenizer.decode(new_tokens, skip_special_tokens=True) # new text，;  等于思考了之前的正确+部分错误，所获得的新的generation
 
             del outputs
             torch.cuda.empty_cache()
@@ -179,21 +179,21 @@ class BaseEvaluator:
                 print(f"Partial completion: {completion_part}")
                 
                 # Add the partial completion to full_completion
-                full_completion += completion_part
+                full_completion += completion_part # new text; new text + new text
                 
-                old_inputs = current_inputs
-                new_text = self.tokenizer.decode(current_inputs['input_ids'][0], skip_special_tokens=True) + completion_part
-                current_inputs = self.tokenizer(new_text, return_tensors="pt", add_special_tokens=False).to(self.model.device)
+                old_inputs = current_inputs # origin query; origin query+ new text
+                new_text = self.tokenizer.decode(current_inputs['input_ids'][0], skip_special_tokens=True) + completion_part 
+                current_inputs = self.tokenizer(new_text, return_tensors="pt", add_special_tokens=False).to(self.model.device) # origin query + new text; origin query+ new text + new text;
                 del old_inputs  # 释放旧的inputs
                 
                 retry_count += 1
                 print(f"Continuing generation with {current_inputs['input_ids'].shape[1]} tokens")
             else:
-                full_completion += completion_part
+                full_completion += completion_part # new text + new text + new text (第三次如果跳到这里)
                 print(f"Generation completed normally after {retry_count} retries")
                 break
         
-        if retry_count >= max_retries:
+        if retry_count >= max_retries: # 如果搞了5次还不行，就把之前的一并输入，最后一次尝试了。
             print(f"Max retries ({max_retries}) reached due to high entropy, continuing with normal generation")
             
             os.environ["entropy_control"] = "False"
@@ -210,12 +210,12 @@ class BaseEvaluator:
             final_new_tokens = final_outputs[0][current_inputs['input_ids'].shape[1]:]
             final_completion_part = self.tokenizer.decode(final_new_tokens, skip_special_tokens=True)
             
-            full_completion += final_completion_part
+            full_completion += final_completion_part # 完全的new text
             print(f"Normal generation completed, added {len(final_new_tokens)} tokens")
         else:
             print(f"Generation completed normally after {retry_count} retries")
         
-        os.environ["entropy_control"] = "False"
+        os.environ["entropy_control"] = "False" 
         
         return full_completion, retry_count
 
