@@ -150,7 +150,7 @@ class BaseEvaluator:
         """Abstract method to get system prompt - must be implemented by subclasses"""
         raise NotImplementedError("Subclasses must implement get_system_prompt")
 
-    def generate_with_entropy_control(self, inputs, generation_params, max_retries=5):
+    def generate_with_entropy_control(self, inputs, generation_params, max_retries=5): # 这retry的次数不是majority vote么。。。。。
         """Generate text with entropy control"""
         os.environ["entropy_control"] = "True"
         os.environ["log_entropy_control"] = "True"
